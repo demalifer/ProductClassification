@@ -23,6 +23,8 @@ class TrainConfig:
     save_steps: int = 100
     output_dir: str = './models'
     log_dir: str = './logs'
+    early_stop_metric: str = 'loss'
+    patience: int = 5
 
 # 训练器类
 class Trainer:
@@ -45,8 +47,10 @@ class Trainer:
         self.step = 1
         # Tensorboard写入
         self.writer = SummaryWriter(log_dir=str(self.train_config.log_dir / time.strftime("%Y-%m-%d-%H-%M-%S")))
-        # 全局最小loss
-        self.min_loss = float('inf')
+        # 全局最佳得分
+        self.early_stop_best_score = -float('inf')
+        # 容忍度计数器
+        self.counter = 0
 
     #获取数据加载器
     def _get_dataloader(self, dataset):
@@ -77,10 +81,10 @@ class Trainer:
                     metrics_str = '|'.join([f'{k}:{v:.4f}' for k, v in metrics.items()])
                     tqdm.write(f'[Evaluate:{metrics_str}]')
 
-                    if this_loss < self.min_loss:
-                        self.min_loss = this_loss
-                        tqdm.write('saving the model...')
-                        self.model.save_pretrained(self.train_config.output_dir)
+                    if self._should_stop(metrics):
+                        tqdm.write('Early Stopping')
+                        return
+
                 self.step += 1
 
     # 一次迭代
@@ -92,6 +96,21 @@ class Trainer:
         self.optimizer.step()
         self.optimizer.zero_grad()
         return loss_value
+
+    # 早停
+    def _should_stop(self, metrics):
+        metric = metrics[self.train_config.early_stop_metric]
+        score = -metric if self.train_config.early_stop_metric == 'loss' else metric
+        if score > self.early_stop_best_score:
+            self.early_stop_best_score = score
+            self.counter = 0
+            model.save_pretrained(str(Path(self.train_config.output_dir) / 'best'))
+        else:
+            self.counter += 1
+            if self.counter >= self.train_config.early_stop_steps:
+                return True
+            else:
+                return False
 
     # 验证方法
     def evaluate(self) -> dict:
