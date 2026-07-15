@@ -3,16 +3,16 @@ from transformers import AutoTokenizer, DataCollatorWithPadding
 from torch.utils.data import DataLoader
 from configuration.config import *
 
-#获取数据加载器
+# 获取数据加载器
 def get_dataloader(tokenizer, ds_type='train'):
-    #加载数据集
+    #1. 加载数据集
     path = str(PROCESSED_DATA_DIR / ds_type)
     dataset = load_from_disk(path)
 
-    #设置格式为tensor
+    #2. 设置格式为tensor
     dataset.set_format(type='torch')
 
-    #创建DataLoader
+    #3. 创建DataLoader
     collate_fn = DataCollatorWithPadding(
         tokenizer=tokenizer,
         padding=True,

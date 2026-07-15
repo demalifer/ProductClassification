@@ -2,7 +2,7 @@ from configuration.config import *
 from datasets import load_dataset, ClassLabel
 from transformers import AutoTokenizer
 
-#预处理
+# 预处理
 def preprocess():
     #1. 加载数据集
     dataset_dict = load_dataset(
