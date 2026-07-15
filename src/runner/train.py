@@ -1,14 +1,22 @@
-from partd import encode
+from attr import dataclass
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from torch.optim import Adam
 from configuration.config import *
 import torch
 from process.dataset import DataLoader
 
+# 训练配置类
+@dataclass
+class TrainConfig:
+    epochs: int = 10
+    batch_size: int = 16
+    learning_rate: float = 1e-5
+    output_dir: str = './models'
+
 # 训练器类
 class Trainer:
     # 初始化
-    def __init__(self, model, train_loader, optimizer, device):
+    def __init__(self, model, train_loader, optimizer, device, train_config=None):
         pass
 
     # 核心方法
@@ -37,7 +45,9 @@ if __name__ == '__main__':
     optimizer = Adam(model.parameters(), lr=LEARNING_RATE)
     #6.数据加载器
     train_loader = DataLoader(tokenizer)
-    #7.训练器
-    trainer = Trainer(model, train_loader, optimizer, device)
-    #8.训练
+    #7. 定义训练配置
+    train_config = TrainConfig(batch_size=32, output_dir=MODEL_DIR)
+    #8. 训练器
+    trainer = Trainer(model, train_loader, optimizer, device, train_config)
+    #9. 训练
     trainer.train()
