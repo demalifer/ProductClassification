@@ -12,6 +12,7 @@ RAW_TRAIN_DATA = 'train.txt'
 RAW_VALID_DATA = 'valid.txt'
 RAW_TEST_DATA = 'test.txt'
 BERT_MODEL_NAME = 'google-bert/bert-base-chinese'
+LABELS_FILE = 'labels.txt'
 
 #3. 超参数
 BATCH_SIZE = 16
