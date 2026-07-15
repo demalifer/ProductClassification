@@ -3,6 +3,11 @@ from transformers import AutoTokenizer, DataCollatorWithPadding
 from torch.utils.data import DataLoader
 from configuration.config import *
 
+def get_dataset(ds_type='train'):
+    path = str(PROCESSED_DATA_DIR / ds_type)
+    dataset = load_from_disk(path)
+    return dataset
+
 # 获取数据加载器
 def get_dataloader(tokenizer, ds_type='train'):
     #1. 加载数据集
