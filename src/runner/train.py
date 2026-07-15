@@ -73,6 +73,10 @@ class Trainer:
                 if self.step % self.train_config.save_steps == 0:
                     tqdm.write(f'[Epoch {epoch+1} | Step {self.step}] Loss {this_loss:.4f}')
                     self.writer.add_scalar('loss', this_loss, self.step)
+                    metrics = self.evaluate()
+                    metrics_str = '|'.join([f'{k}:{v:.4f}' for k, v in metrics.items()])
+                    tqdm.write(f'[Evaluate:{metrics_str}]')
+
                     if this_loss < self.min_loss:
                         self.min_loss = this_loss
                         tqdm.write('saving the model...')
