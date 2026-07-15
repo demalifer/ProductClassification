@@ -2,6 +2,7 @@ from configuration.config import *
 from datasets import load_dataset, ClassLabel
 from transformers import AutoTokenizer
 
+#预处理
 def preprocess():
     #1. 加载数据集
     dataset_dict = load_dataset(
@@ -16,7 +17,7 @@ def preprocess():
     
     #2. 编码
     all_labels = sorted(set(dataset_dict['train']['label']))
-    dataset_dict.cast_column('label', ClassLabel(names=all_labels))
+    dataset_dict = dataset_dict.cast_column('label', ClassLabel(names=all_labels))
     with open(MODEL_DIR / LABELS_FILE, 'w', encoding='utf-8') as f:
         f.write('\n'.join(all_labels))
 
