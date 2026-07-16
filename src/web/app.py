@@ -23,5 +23,5 @@ service = TitleService(predictor=predictor)
 
 @app.get("/predict")
 def predict(text: str) -> Category:
-    label = service.predict_text(text)
+    label = service.predict(text)
     return Category(category=label)
