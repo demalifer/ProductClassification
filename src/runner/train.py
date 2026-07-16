@@ -13,6 +13,7 @@ from process.dataset import get_dataset
 from torch.utils.data import DataLoader
 from sklearn.metrics import accuracy_score, f1_score
 from tqdm import tqdm
+from torch.amp import GradScaler
 
 # 训练配置类
 @dataclass
@@ -20,11 +21,12 @@ class TrainConfig:
     epochs: int = 10
     batch_size: int = 16
     learning_rate: float = 1e-5
-    save_steps: int = 100
+    save_steps: int = 10
     output_dir: str = './models'
     log_dir: str = './logs'
     early_stop_metric: str = 'loss'
     patience: int = 5
+    use_amp: bool = True
 
 # 训练器类
 class Trainer:
@@ -45,12 +47,14 @@ class Trainer:
         self.optimizer = Adam(model.parameters(), lr=self.train_config.learning_rate)
         # 全局迭代次数
         self.step = 1
-        # Tensorboard写入
+        # tensorboard写入
         self.writer = SummaryWriter(log_dir=str(self.train_config.log_dir / time.strftime("%Y-%m-%d-%H-%M-%S")))
         # 全局最佳得分
         self.early_stop_best_score = -float('inf')
         # 容忍度计数器
         self.counter = 0
+        # AMP梯度缩放器
+        self.scaler = GradScaler(device=self.device.type, enabled=self.train_config.use_amp)
 
     #获取数据加载器
     def _get_dataloader(self, dataset):
@@ -90,10 +94,16 @@ class Trainer:
     # 一次迭代
     def _train_one_step(self, inputs):
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
-        outputs = self.model(**inputs)
-        loss_value = outputs.loss
-        loss_value.backward()
-        self.optimizer.step()
+        with torch.autocast(
+            device_type=self.device.type,
+            dtype=torch.float16,
+            enabled=self.train_config.use_amp
+        ):
+            outputs = self.model(**inputs)
+            loss_value = outputs.loss
+        self.scaler.scale(loss_value).backward()
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
         self.optimizer.zero_grad()
         return loss_value
 
@@ -107,7 +117,7 @@ class Trainer:
             model.save_pretrained(str(Path(self.train_config.output_dir) / 'best'))
         else:
             self.counter += 1
-            if self.counter >= self.train_config.early_stop_steps:
+            if self.counter >= self.train_config.patience:
                 return True
             else:
                 return False
