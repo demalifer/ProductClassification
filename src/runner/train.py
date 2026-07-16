@@ -1,6 +1,9 @@
-import torch
 import time
-from attr import dataclass
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+import torch
 from torch.utils.tensorboard import SummaryWriter
 from transformers import (
     AutoTokenizer,
@@ -8,6 +11,11 @@ from transformers import (
     DataCollatorWithPadding,
 )
 from torch.optim import Adam
+
+SRC_DIR = Path(__file__).resolve().parents[1]
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
 from configuration.config import *
 from process.dataset import get_dataset
 from torch.utils.data import DataLoader
@@ -33,10 +41,11 @@ class Trainer:
     # 初始化
     def __init__(self, model, train_dataset, valid_dataset, collate_fn, compute_metrics, device, train_config=None):
         # 训练参数
-        self.train_config = train_config
+        self.train_config = train_config or TrainConfig()
         # 模型和设备
         self.model = model.to(device)
         self.device = device
+        self.use_amp = self.train_config.use_amp and self.device.type == 'cuda'
         # 数据集和数据整理函数
         self.train_dataset = train_dataset
         self.valid_dataset = valid_dataset
@@ -44,29 +53,30 @@ class Trainer:
         # 评估函数
         self.compute_metrics = compute_metrics
         # 优化器
-        self.optimizer = Adam(model.parameters(), lr=self.train_config.learning_rate)
+        self.optimizer = Adam(self.model.parameters(), lr=self.train_config.learning_rate)
         # 全局迭代次数
         self.step = 1
         # tensorboard写入
-        self.writer = SummaryWriter(log_dir=str(self.train_config.log_dir / time.strftime("%Y-%m-%d-%H-%M-%S")))
+        self.writer = SummaryWriter(log_dir=str(Path(self.train_config.log_dir) / time.strftime("%Y-%m-%d-%H-%M-%S")))
         # 全局最佳得分
         self.early_stop_best_score = -float('inf')
         # 容忍度计数器
         self.counter = 0
         # AMP梯度缩放器
-        self.scaler = GradScaler(device=self.device.type, enabled=self.train_config.use_amp)
+        self.scaler = GradScaler(device=self.device.type, enabled=self.use_amp)
         # 检查点文件路径
         self.checkpoint_path = Path(self.train_config.output_dir) / 'last' /  'checkpoint.pt'
+        self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
     #获取数据加载器
-    def _get_dataloader(self, dataset):
+    def _get_dataloader(self, dataset, shuffle=False):
         # 设置格式为tensor
         dataset.set_format(type="torch")
 
         dataloader = DataLoader(
             dataset,
             batch_size=self.train_config.batch_size,
-            shuffle=True,
+            shuffle=shuffle,
             collate_fn=self.collate_fn
         )
         return dataloader
@@ -76,7 +86,7 @@ class Trainer:
         self._load_checkpoint()
         self.model.train()
         # 获取训练集加载器
-        dataloader = self._get_dataloader(self.train_dataset)
+        dataloader = self._get_dataloader(self.train_dataset, shuffle=True)
         # 训练
         for epoch in range(self.train_config.epochs):
             for inputs in tqdm(dataloader, desc=f'[Epoch {epoch+1}]'):
@@ -102,7 +112,7 @@ class Trainer:
         with torch.autocast(
             device_type=self.device.type,
             dtype=torch.float16,
-            enabled=self.train_config.use_amp
+            enabled=self.use_amp
         ):
             outputs = self.model(**inputs)
             loss_value = outputs.loss
@@ -114,13 +124,14 @@ class Trainer:
 
     # 早停
     def _should_stop(self, metrics):
-        metric = metrics[self.train_config.early_stop_metric]
+        metric = float(metrics[self.train_config.early_stop_metric])
         score = -metric if self.train_config.early_stop_metric == 'loss' else metric
         if score > self.early_stop_best_score:
             self.early_stop_best_score = score
             self.counter = 0
             tqdm.write('saving the best model...')
-            model.save_pretrained(str(Path(self.train_config.output_dir) / 'best'))
+            self.model.save_pretrained(str(Path(self.train_config.output_dir) / 'best'))
+            return False
         else:
             self.counter += 1
             if self.counter >= self.train_config.patience:
@@ -130,10 +141,11 @@ class Trainer:
 
     # 验证方法
     def evaluate(self) -> dict:
-        dataloader = self._get_dataloader(self.valid_dataset)
+        dataloader = self._get_dataloader(self.valid_dataset, shuffle=False)
+        was_training = self.model.training
         self.model.eval()
 
-        total_loss = 0
+        total_loss = 0.0
         all_labels = []
         all_predictions = []
         with torch.no_grad():
@@ -143,7 +155,7 @@ class Trainer:
                 outputs = self.model(**inputs)
 
                 loss_value = outputs.loss
-                total_loss += loss_value
+                total_loss += loss_value.item()
 
                 logits = outputs.logits
                 predictions = torch.argmax(logits, dim=-1)
@@ -151,9 +163,11 @@ class Trainer:
 
                 labels = inputs['labels']
                 all_labels.extend(labels.tolist())
-            loss = total_loss / len(dataloader)
-            metrics = self.compute_metrics(all_labels, all_predictions)
-            return {'loss': loss, **metrics}
+        if was_training:
+            self.model.train()
+        loss = total_loss / len(dataloader)
+        metrics = self.compute_metrics(all_labels, all_predictions)
+        return {'loss': loss, **metrics}
 
     #保存检查点
     def _save_checkpoint(self):
@@ -171,7 +185,7 @@ class Trainer:
     def _load_checkpoint(self):
         if self.checkpoint_path.exists():
             tqdm.write(f'Loading checkpoint from {self.checkpoint_path}...')
-            checkpoint = torch.load(self.checkpoint_path)
+            checkpoint = torch.load(self.checkpoint_path, map_location=self.device)
             self.model.load_state_dict(checkpoint['model_state_dict'])
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             self.scaler.load_state_dict(checkpoint['scaler_state_dict'])
