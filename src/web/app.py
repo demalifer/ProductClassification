@@ -1,4 +1,5 @@
 import torch
+import uvicorn
 from fastapi import FastAPI
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
@@ -25,3 +26,6 @@ service = TitleService(predictor=predictor)
 def predict(text: str) -> Category:
     label = service.predict(text)
     return Category(category=label)
+
+def serve():
+    uvicorn.run('web.app:app', host="0.0.0.0", port=8000)
