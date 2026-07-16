@@ -55,6 +55,8 @@ class Trainer:
         self.counter = 0
         # AMP梯度缩放器
         self.scaler = GradScaler(device=self.device.type, enabled=self.train_config.use_amp)
+        # 检查点文件路径
+        self.checkpoint_path = Path(self.train_config.output_dir) / 'last' /  'checkpoint.pt'
 
     #获取数据加载器
     def _get_dataloader(self, dataset):
@@ -71,6 +73,7 @@ class Trainer:
 
     # 核心方法
     def train(self):
+        self._load_checkpoint()
         self.model.train()
         # 获取训练集加载器
         dataloader = self._get_dataloader(self.train_dataset)
@@ -88,6 +91,8 @@ class Trainer:
                     if self._should_stop(metrics):
                         tqdm.write('Early Stopping')
                         return
+
+                    self._save_checkpoint()
 
                 self.step += 1
 
@@ -114,6 +119,7 @@ class Trainer:
         if score > self.early_stop_best_score:
             self.early_stop_best_score = score
             self.counter = 0
+            tqdm.write('saving the best model...')
             model.save_pretrained(str(Path(self.train_config.output_dir) / 'best'))
         else:
             self.counter += 1
@@ -149,8 +155,33 @@ class Trainer:
             metrics = self.compute_metrics(all_labels, all_predictions)
             return {'loss': loss, **metrics}
 
+    #保存检查点
+    def _save_checkpoint(self):
+        checkpoint = {
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'scaler_state_dict': self.scaler.state_dict(),
+            'step': self.step,
+            'early_stop_best_score': self.early_stop_best_score,
+            'counter': self.counter
+        }
+        torch.save(checkpoint, self.checkpoint_path)
 
-if __name__ == '__main__':
+    #加载检查点
+    def _load_checkpoint(self):
+        if self.checkpoint_path.exists():
+            tqdm.write(f'Loading checkpoint from {self.checkpoint_path}...')
+            checkpoint = torch.load(self.checkpoint_path)
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            self.scaler.load_state_dict(checkpoint['scaler_state_dict'])
+            self.step = checkpoint['step']
+            self.early_stop_best_score = checkpoint['early_stop_best_score']
+            self.counter = checkpoint['counter']
+        else:
+            tqdm.write(f'No checkpoint found at {self.checkpoint_path}, starting from scratch...')
+
+def train():
     #1. 设备
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     #2. 分词器
@@ -182,7 +213,7 @@ if __name__ == '__main__':
         f1 = f1_score(labels, predictions, average='weighted')
         return {'acc': acc, 'f1': f1}
     #7. 定义训练配置
-    train_config = TrainConfig(batch_size=32, output_dir=MODEL_DIR, log_dir=MODEL_DIR, save_steps=100)
+    train_config = TrainConfig(batch_size=32, output_dir=MODEL_DIR, log_dir=LOG_DIR, save_steps=100)
     #8. 训练器
     trainer = Trainer(
         model=model,
@@ -195,3 +226,6 @@ if __name__ == '__main__':
     )
     #9. 训练
     trainer.train()
+
+if __name__ == '__main__':
+    train()

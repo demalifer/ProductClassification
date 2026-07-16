@@ -4,7 +4,7 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).parent.parent.parent
 RAW_DATA_DIR = ROOT_DIR / 'data'/ 'raw'
 PROCESSED_DATA_DIR = ROOT_DIR / 'data'/ 'processed'
-MODEL_DIR = ROOT_DIR / 'models'
+MODEL_DIR = ROOT_DIR / 'checkpoint'
 LOG_DIR = ROOT_DIR / 'logs'
 
 #2. 文件
